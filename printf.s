@@ -8,35 +8,48 @@ global _start
 
 _start:
 
-    mov rsi, String             ; string to print
+    mov rsi, String             ; format string
     mov rdi, Buffer
 
 ; arguments:
-    ; push 100
-    ; push 100
-    ; push 'T'
-    ; push 'I'
-    ; push 'N'
-    ; push 'E'
-    ; push 'Z'
-    push 10
-    push 10
-    push 10
-    push 10
+    mov rax, BufEnd
+    sub rax, Buffer
+    push rax
+    push 1000
+    push 1000
+    push 1000
+    push 1000
+    push 'T'
+    push 'I'
+    push 'N'
+    push 'E'
+    push 'Z'
+    push 100
+    push 100
 
 Symbol:
     cmp byte [rsi], '$'         ; terminal symbol
-    je Finish
+    jne NotEnd
+    call PrintBuffer
+    jmp Finish
 
+NotEnd:
     cmp byte [rsi], '%'
     je Prcnt_handler
 
+    cmp rdi, BufEnd             ;
+    jne ContinueSymbol          ; printing buffer if it is full
+    call PrintBuffer
+
+ContinueSymbol:
     mov rcx, 1                  ;
     movsb                       ; a byte from rsi (string) to rdi (Buffer)
 
     jmp Symbol
 
-Prcnt_handler: ; DESTROYING RAX
+;=====================================================================================
+Prcnt_handler: ; DESTROYS RAX
+
     inc rsi                     ; to identifier
     xor rax, rax                ;
     mov al, [rsi]               ;
@@ -44,13 +57,14 @@ Prcnt_handler: ; DESTROYING RAX
     add rax, JumpTable          ;
     jmp [rax]                   ; jumping to [JumpTable + ASCII * 8]
 
-;========================================%b===========================================
-prcnt_b:
-    mov rcx, 2
-    jmp NumberHandler
-
 ;========================================%c===========================================
-prcnt_c: ; DESTROYING RAX
+prcnt_c: ; DESTROYS RAX
+
+    cmp rdi, BufEnd             ;
+    jne ContinuePrcntC          ; if (rdi == BufEnd) PrintBuffer();
+    call PrintBuffer            ;
+
+ContinuePrcntC:
     pop rax                     ; getting the argument
     mov [rdi], al               ; putting it in buffer
     inc rdi
@@ -58,13 +72,29 @@ prcnt_c: ; DESTROYING RAX
 
     jmp Symbol                  ; consider next symbol
 
+;========================================%b===========================================
+prcnt_b:
+    mov rcx, 2                  ; bin system index
+    jmp NumberHandler
+
+;========================================%o===========================================
+prcnt_o:
+    mov rcx, 8                  ; oct system index
+    jmp NumberHandler
+
 ;========================================%d===========================================
 prcnt_d:
-    mov rcx, 10
+    mov rcx, 10                 ; dec system index
+    jmp NumberHandler
+
+;========================================%x===========================================
+prcnt_x:
+    mov rcx, 16                 ; hex system index
     jmp NumberHandler
 
 ;===============================Universal Number Hadler===============================
-NumberHandler: ; DESTROYING RAX, RDX. INPUT: INDEX OF THE NUMBER SYSTEM
+NumberHandler: ; DESTROYS RAX, RDX. ENTRY: INDEX OF THE NUMBER SYSTEM IN RCX
+
     pop rax                     ; getting the number
     push rsi                    ; saving rsi
     mov rsi, NumBuffer          ; buffer for the number
@@ -79,15 +109,26 @@ GetDigit:                       ; while (rax > 0)
     inc rsi                     ;
     jmp GetDigit                ;
 
-PutDigit:                       ;
+PutDigit:
+
     cmp rsi, NumBuffer          ; while (rsi > NumBuffer)
     je NumHandlerEnd            ; {
+
+    cmp rdi, BufEnd             ;
+    jne ContinueNumber          ; if (rdi == BufEnd) PrintBuffer();
+    call PrintBuffer            ;
+
+ContinueNumber:                 ;
     dec rsi                     ;   rsi--;
     add byte [rsi], '0'         ;   NumBuffer[rsi - NumBuffer] += '0';
+
     cmp byte [rsi], '9'         ;   if (NumBuffer[rsi - NumBuffer] <= '9')
-    jbe NotHex                  ;   { // 7 symbols between '9' and 'A' in ASCII table:
-    add byte [rsi], 7           ;       NumBuffer[rsi - NumBuffer] += 7;
-NotHex:                         ;   }
+    jbe NotHex                  ;   { // skip symbols between '9' and 'A' in ASCII table:
+    add byte [rsi], 'A'         ;       NumBuffer[rsi - NumBuffer] += 'A' - 1 - '9';
+    dec byte [rsi]              ;   }
+    sub byte [rsi], '9'         ;
+
+NotHex:                         ;
     movsb                       ;   Buffer[rdi - Buffer] = NumBuffer[rsi - NumBuffer];
     dec rsi                     ;   rdi++;
     jmp PutDigit                ; }
@@ -97,17 +138,8 @@ NumHandlerEnd:
     inc rsi
     jmp Symbol                  ; considering next symbol
 
-;========================================%o===========================================
-prcnt_o:
-    mov rcx, 8
-    jmp NumberHandler
-
 ;========================================%s===========================================
 prcnt_s:
-;========================================%x===========================================
-prcnt_x:
-    mov rcx, 16
-    jmp NumberHandler
 
 ;========================================%%===========================================
 prcnt_prcnt:
@@ -117,7 +149,7 @@ prcnt_prcnt:
     jmp Symbol                  ; consider next symbol
 
 ;====================================SyntaxError======================================
-synterr:                        ; display syntax error message and exit
+synterr:                        ; print syntax error message and exit
     mov rax, 0x01
     mov rdi, 1
     mov rsi, ErrorMsg
@@ -129,13 +161,22 @@ synterr:                        ; display syntax error message and exit
     syscall
 
 ;=====================================================================================
-Finish:                         ; display Buffer and exit
+PrintBuffer: ; DESTROYS RAX, RDX
+    push rsi
 
     mov rax, 0x01
+    mov rdx, rdi
+    sub rdx, Buffer
     mov rdi, 1
     mov rsi, Buffer
-    mov rdx, BufLen
     syscall
+
+    mov rdi, Buffer
+    pop rsi
+
+    ret
+;=====================================================================================
+Finish:                         ; exit
 
     mov rax, 0x3c
     xor rdi, rdi
@@ -173,15 +214,15 @@ JumpTable:
 
 section .data
 
-Buffer    dq 64 dup (0)
-BufLen    equ $ - Buffer
-ErrorMsg  db "Syntax Error!", 0x0a, "$"
-ErrMsgLen equ $ - ErrorMsg
-DbgMsg    db "BUGBUGBUGBUGBUGBUG", 0x0a
-NumBuffer dq 32 dup (0)
-DbgMsgLen equ $ - DbgMsg
-; String    dq "The winner  is ... %c%c%c%c%c!", 0x0a, "Probability is ... %d%% of %d%%", 0x0a, "$"
-String    dq "Dec - %d, Hex - %x, Oct - %o, Bin - %b", 0x0a, "$"
+Buffer      dq  1 dup (0)
+BufEnd      equ $
+ErrorMsg    db  "Syntax Error!", 0x0a, "$"
+ErrMsgLen   equ $ - ErrorMsg
+DbgMsg      db  "BUGBUGBUGBUGBUGBUG", 0x0a
+NumBuffer   dq  32 dup (0)
+DbgMsgLen   equ $ - DbgMsg
+String      dq "Probability is ... %d%% of %d%%", 0x0a, "The winner  is ... %c%c%c%c%c!", 0x0a
+            dq "Dec - %d, Hex - %x, Oct - %o, Bin - %b", 0x0a, "Actually, the buffer length is %d!", 0x0a, "$"
 
 ;     push rsi
 ;     push rdi
