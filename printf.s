@@ -9,7 +9,11 @@ global _start
 _start:
 
     mov rsi, String             ; string to print
-    mov rdi, buffer
+    mov rdi, Buffer
+    push 100
+    push 'T'
+    push 'I'
+    push 'N'
     push 'E'                    ;
     push 'Z'                    ; arguments for %c
 
@@ -21,11 +25,11 @@ Symbol:
     je Prcnt_handler
 
     mov rcx, 1                  ;
-    movsb                       ; a byte from rsi (string) to rdi (buffer)
+    movsb                       ; a byte from rsi (string) to rdi (Buffer)
 
     jmp Symbol
 
-Prcnt_handler: ; DESTROYING RAX, RCX
+Prcnt_handler: ; DESTROYING RAX
     inc rsi                     ; to identifier
     xor rax, rax                ;
     mov al, [rsi]               ;
@@ -34,20 +38,61 @@ Prcnt_handler: ; DESTROYING RAX, RCX
     jmp [rax]                   ; jumping to [JumpTable + ASCII * 8]
 
 prcnt_b:
+
+;========================================%c===========================================
 prcnt_c: ; DESTROYING RAX
     pop rax                     ; getting the argument
-
     mov [rdi], al               ; putting it in buffer
     inc rdi
     inc rsi
 
     jmp Symbol                  ; consider next symbol
 
-prcnt_d:
+;========================================%d===========================================
+prcnt_d: ; DESTROYING RAX, RDX, RCX
+    pop rax                     ; getting the number
+    push rsi                    ; saving rsi
+    mov rsi, NumBuffer          ; buffer for the number
+
+GetDigit:                       ; while (rax > 0)
+    cmp rax, 0                  ; {
+    je PutDigit                 ;   NumBuffer[rsi - NumBuffer] = rax % 10;
+                                ;   rax /= 10;
+    xor rdx, rdx                ;   rsi++;
+    mov rcx, 10                 ; }
+    div rcx                     ;
+    mov [rsi], dl               ;
+    inc rsi                     ;
+    jmp GetDigit                ;
+
+PutDigit:                       ;
+    cmp rsi, NumBuffer          ; while (rsi > NumBuffer)
+    je PrcntDEnd                ; {
+    dec rsi                     ;   rsi--;
+    add byte [rsi], '0'         ;   NumBuffer[rsi - NumBuffer] += '0';
+    movsb                       ;   Buffer[rdi - Buffer] = NumBuffer[rsi - NumBuffer];
+    dec rsi                     ;   rdi++;
+    jmp PutDigit                ; }
+
+PrcntDEnd:
+    pop rsi
+    inc rsi
+    jmp Symbol                  ; considering next symbol
+
+;=====================================================================================
+
 prcnt_o:
 prcnt_s:
 prcnt_x:
+
+;========================================%%===========================================
 prcnt_prcnt:
+    mov byte [rdi], '%'         ; putting '%' in buffer
+    inc rsi
+    inc rdi
+    jmp Symbol                  ; consider next symbol
+
+;====================================SyntaxError======================================
 synterr:                        ; display syntax error message and exit
     mov rax, 0x01
     mov rdi, 1
@@ -59,12 +104,13 @@ synterr:                        ; display syntax error message and exit
     xor rdi, rdi
     syscall
 
-Finish:                         ; display buffer and exit
+;=====================================================================================
+Finish:                         ; display Buffer and exit
 
     mov rax, 0x01
     mov rdi, 1
-    mov rsi, buffer
-    mov rdx, buf_len
+    mov rsi, Buffer
+    mov rdx, BufLen
     syscall
 
     mov rax, 0x3c
@@ -103,13 +149,14 @@ JumpTable:
 
 section .data
 
-buffer    dq 64 dup (0)
-buf_len   equ $ - buffer
+Buffer    dq 64 dup (0)
+BufLen    equ $ - Buffer
 ErrorMsg  db "Syntax Error!", 0x0a, "$"
 ErrMsgLen equ $ - ErrorMsg
 DbgMsg    db "BUGBUGBUGBUGBUGBUG", 0x0a
+NumBuffer dq 32 dup (0)
 DbgMsgLen equ $ - DbgMsg
-String    dq "The char is... %c%c", 0x0a, "$"
+String    dq "The winner  is ... %c%c%c%c%c!", 0x0a, "Probability is ... %d%%", 0x0a, "$"
 
 ;     push rsi
 ;     push rdi
