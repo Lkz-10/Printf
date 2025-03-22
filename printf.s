@@ -12,6 +12,7 @@ _start:
     mov rdi, Buffer
 
 ; arguments:
+    push TestStr
     mov rax, BufEnd
     sub rax, Buffer
     push rax
@@ -139,7 +140,50 @@ NumHandlerEnd:
     jmp Symbol                  ; considering next symbol
 
 ;========================================%s===========================================
-prcnt_s:
+prcnt_s: ; DESTROYS RAX, RCX, RDX
+
+    pop rax                     ; getting the string
+    push rsi                    ; saving rsi
+    mov rsi, rax                ; rsi = rax (the string address)
+
+    dec rax                     ;
+SearchEOS:                      ; // EOS - End of string
+    inc rax                     ; while (string[rax - string] != '\0') rax++;
+    cmp byte [rax], 0           ; // Finally address of the end of the string in rax
+    jne SearchEOS               ;
+
+    sub rax, rsi                ; rax -= rsi; // the string length is in rax now
+    mov rdx, BufEnd             ;
+    sub rdx, rdi                ; rdx = BufEnd - rdi; // amount of buffer's free memory is in rdx now
+
+    cmp rax, rdx                ;
+    jbe StringToBuffer          ; if (rax <= rdx) StringToBuffer();
+
+    call PrintBuffer
+
+    cmp rax, BufEnd - Buffer    ; // BufEnd - Buffer equals the buffer capacity
+    jae PrintString             ; if (rax >= BufEnd - Buffer) PrintString();
+
+StringToBuffer:
+    mov rcx, rax                ; rcx = rax; // length of the string
+    rep movsb                   ; putting rcx symbols from string to bugger
+
+PrcntSEnd:
+    pop rsi                     ; restoring rsi
+    inc rsi                     ;
+    jmp Symbol                  ; considering next symbol of the format string
+
+PrintString:
+    push rdi                    ; saving rdi
+
+    mov rdx, rax                ; rdx = rax (length of the string)
+    mov rax, 0x01
+    mov rdi, 1
+    syscall
+
+    pop rdi                     ; restoring rdi
+    jmp PrcntSEnd
+
 
 ;========================================%%===========================================
 prcnt_prcnt:
@@ -161,7 +205,8 @@ synterr:                        ; print syntax error message and exit
     syscall
 
 ;=====================================================================================
-PrintBuffer: ; DESTROYS RAX, RDX
+PrintBuffer: ; DESTROYS RDX
+    push rax
     push rsi
 
     mov rax, 0x01
@@ -173,6 +218,7 @@ PrintBuffer: ; DESTROYS RAX, RDX
 
     mov rdi, Buffer
     pop rsi
+    pop rax
 
     ret
 ;=====================================================================================
@@ -216,13 +262,15 @@ section .data
 
 Buffer      dq  1 dup (0)
 BufEnd      equ $
-ErrorMsg    db  "Syntax Error!", 0x0a, "$"
+ErrorMsg    dq  "Syntax Error!", 0x0a, "$"
 ErrMsgLen   equ $ - ErrorMsg
 DbgMsg      db  "BUGBUGBUGBUGBUGBUG", 0x0a
-NumBuffer   dq  32 dup (0)
 DbgMsgLen   equ $ - DbgMsg
+NumBuffer   dq  32 dup (0)
 String      dq "Probability is ... %d%% of %d%%", 0x0a, "The winner  is ... %c%c%c%c%c!", 0x0a
-            dq "Dec - %d, Hex - %x, Oct - %o, Bin - %b", 0x0a, "Actually, the buffer length is %d!", 0x0a, "$"
+            dq "Dec - %d, Hex - %x, Oct - %o, Bin - %b", 0x0a, "Actually, the buffer length is %d!", 0x0a
+            dq "The fact is: %s", 0x0a, "$"
+TestStr     dq "Zenit champion!", 0x00
 
 ;     push rsi
 ;     push rdi
