@@ -1,52 +1,43 @@
-; nasm -f elf64 -l aaa.lst aaa.s
-; ld -s -o aaa aaa.o
-; ./aaa
-
+section .note.GNU-stack noalloc noexec nowrite progbits ; for non-executable stack
 section .text
 
-global _start
+global MyPrintf
 
-_start:
+MyPrintf:
 
-    mov rsi, String             ; format string
-    mov rdi, Buffer
+    cld                         ; clear destination flag (for movsb to work properly)
 
-; arguments:
-    push TestStr
-    mov rax, BufEnd
-    sub rax, Buffer
-    push rax
-    push 1000
-    push 1000
-    push 1000
-    push 1000
-    push 'T'
-    push 'I'
-    push 'N'
-    push 'E'
-    push 'Z'
-    push 100
-    push 100
+    pop rax                     ;
+    mov [RetAddr], rax          ; saving C return address
+
+    push r9                     ;
+    push r8                     ;
+    push rcx                    ;
+    push rdx                    ;
+    push rsi                    ;
+    push rdi                    ; moving parameters from registers to stack
+
+    pop rsi                     ; format string address to rsi
+    mov rdi, Buffer             ; buffer address to rdi
 
 Symbol:
-    cmp byte [rsi], '$'         ; terminal symbol
-    jne NotEnd
-    call PrintBuffer
-    jmp Finish
+    cmp byte [rsi], 0           ; terminal symbol '\0', ASCII = 0
+    jne NotEnd                  ;
+    call PrintBuffer            ;
+    jmp Finish                  ; Print buffer and exit if \0 is reached
 
 NotEnd:
-    cmp byte [rsi], '%'
-    je Prcnt_handler
+    cmp byte [rsi], '%'         ;
+    je Prcnt_handler            ; go to Prcnt_handler if '%' reached
 
     cmp rdi, BufEnd             ;
     jne ContinueSymbol          ; printing buffer if it is full
-    call PrintBuffer
+    call PrintBuffer            ;
 
 ContinueSymbol:
-    mov rcx, 1                  ;
     movsb                       ; a byte from rsi (string) to rdi (Buffer)
 
-    jmp Symbol
+    jmp Symbol                  ; consider next symbol of format string
 
 ;=====================================================================================
 Prcnt_handler: ; DESTROYS RAX
@@ -71,7 +62,7 @@ ContinuePrcntC:
     inc rdi
     inc rsi
 
-    jmp Symbol                  ; consider next symbol
+    jmp Symbol                  ; consider next symbol of format string
 
 ;========================================%b===========================================
 prcnt_b:
@@ -96,17 +87,17 @@ prcnt_x:
 ;===============================Universal Number Hadler===============================
 NumberHandler: ; DESTROYS RAX, RDX. ENTRY: INDEX OF THE NUMBER SYSTEM IN RCX
 
-    pop rax                     ; getting the number
+    pop  rax                    ; getting the number into rax
     push rsi                    ; saving rsi
-    mov rsi, NumBuffer          ; buffer for the number
+    mov  rsi, NumBuffer         ; buffer for the number
 
-GetDigit:                       ; while (rax > 0)
-    cmp rax, 0                  ; {
-    je PutDigit                 ;   NumBuffer[rsi - NumBuffer] = rax % 10;
-                                ;   rax /= 10;
-    xor rdx, rdx                ;   rsi++;
-    div rcx                     ; }
-    mov [rsi], dl               ;
+GetDigit:                       ;
+    cmp rax, 0                  ; while (rax > 0)
+    je PutDigit                 ; {
+                                ;   NumBuffer[rsi - NumBuffer] = rax % 10;
+    xor rdx, rdx                ;   rax /= 10;
+    div rcx                     ;   rsi++;
+    mov [rsi], dl               ; }
     inc rsi                     ;
     jmp GetDigit                ;
 
@@ -137,7 +128,7 @@ NotHex:                         ;
 NumHandlerEnd:
     pop rsi
     inc rsi
-    jmp Symbol                  ; considering next symbol
+    jmp Symbol                  ; considering next symbol of format string
 
 ;========================================%s===========================================
 prcnt_s: ; DESTROYS RAX, RCX, RDX
@@ -174,59 +165,64 @@ PrcntSEnd:
     jmp Symbol                  ; considering next symbol of the format string
 
 PrintString:
-    push rdi                    ; saving rdi
+    push rdi                    ;
+    push rax                    ; saving rdi, rax
 
     mov rdx, rax                ; rdx = rax (length of the string)
     mov rax, 0x01
     mov rdi, 1
     syscall
 
-    pop rdi                     ; restoring rdi
+    pop rax                     ;
+    pop rdi                     ; restoring rax, rdi
     jmp PrcntSEnd
-
 
 ;========================================%%===========================================
 prcnt_prcnt:
     mov byte [rdi], '%'         ; putting '%' in buffer
     inc rsi
     inc rdi
-    jmp Symbol                  ; consider next symbol
+    jmp Symbol                  ; consider next symbol of format string
 
 ;====================================SyntaxError======================================
-synterr:                        ; print syntax error message and exit
+synterr:                        ; print syntax error message and exit(1)
     mov rax, 0x01
     mov rdi, 1
     mov rsi, ErrorMsg
     mov rdx, ErrMsgLen
     syscall
 
-    mov rax, 0x3c
-    xor rdi, rdi
-    syscall
+    mov  rax, [RetAddr]
+    push rax
+    mov  rax, 1
+    ret
 
 ;=====================================================================================
-PrintBuffer: ; DESTROYS RDX
-    push rax
-    push rsi
+PrintBuffer:
+    push rax                    ;
+    push rsi                    ; saving rax, rsi, rdx
+    push rdx                    ;
 
     mov rax, 0x01
-    mov rdx, rdi
-    sub rdx, Buffer
+    mov rdx, rdi                ;
+    sub rdx, Buffer             ; rdx = rdi - Buffer (legth of filled part of buffer)
     mov rdi, 1
     mov rsi, Buffer
     syscall
 
-    mov rdi, Buffer
-    pop rsi
-    pop rax
+    mov rdi, Buffer             ; rdi = Buffer (beginning of the buffer)
+    pop rdx                     ;
+    pop rsi                     ; restoring rdx, rsi, rax
+    pop rax                     ;
 
     ret
 ;=====================================================================================
-Finish:                         ; exit
+Finish:                         ; exit(0)
 
-    mov rax, 0x3c
-    xor rdi, rdi
-    syscall
+    mov  rax, [RetAddr]
+    push rax
+    xor  rax, rax
+    ret
 
 ;======================================Jump Table=====================================
 
@@ -260,30 +256,9 @@ JumpTable:
 
 section .data
 
-Buffer      dq  1 dup (0)
+Buffer      dq  64 dup (0)
 BufEnd      equ $
-ErrorMsg    dq  "Syntax Error!", 0x0a, "$"
+ErrorMsg    dq  "Syntax Error!", 0x0a
 ErrMsgLen   equ $ - ErrorMsg
-DbgMsg      db  "BUGBUGBUGBUGBUGBUG", 0x0a
-DbgMsgLen   equ $ - DbgMsg
 NumBuffer   dq  32 dup (0)
-String      dq "Probability is ... %d%% of %d%%", 0x0a, "The winner  is ... %c%c%c%c%c!", 0x0a
-            dq "Dec - %d, Hex - %x, Oct - %o, Bin - %b", 0x0a, "Actually, the buffer length is %d!", 0x0a
-            dq "The fact is: %s", 0x0a, "$"
-TestStr     dq "Zenit champion!", 0x00
-
-;     push rsi
-;     push rdi
-;     push rdx
-;     push rax
-;
-;     mov rax, 0x01
-;     mov rdi, 1
-;     mov rsi, DbgMsg
-;     mov rdx, DbgMsgLen
-;     syscall
-;
-;     pop rax
-;     pop rdx
-;     pop rdi
-;     pop rsi
+RetAddr     dq 0
