@@ -5,7 +5,7 @@ global MyPrintf
 
 MyPrintf:
 
-    cld                         ; clear destination flag (for movsb to work properly)
+;=====================================================================================
 
     pop rax                     ;
     mov [RetAddr], rax          ; saving C return address
@@ -16,6 +16,10 @@ MyPrintf:
     push rdx                    ;
     push rsi                    ;
     push rdi                    ; moving parameters from registers to stack
+
+;=====================================================================================
+
+    cld                         ; clear destination flag (for movsb to work properly)
 
     pop rsi                     ; format string address to rsi
     mov rdi, Buffer             ; buffer address to rdi
@@ -179,26 +183,15 @@ PrintString:
 
 ;========================================%%===========================================
 prcnt_prcnt:
+
     mov byte [rdi], '%'         ; putting '%' in buffer
     inc rsi
     inc rdi
     jmp Symbol                  ; consider next symbol of format string
 
-;====================================SyntaxError======================================
-synterr:                        ; print syntax error message and exit(1)
-    mov rax, 0x01
-    mov rdi, 1
-    mov rsi, ErrorMsg
-    mov rdx, ErrMsgLen
-    syscall
-
-    mov  rax, [RetAddr]
-    push rax
-    mov  rax, 1
-    ret
-
 ;=====================================================================================
 PrintBuffer:
+
     push rax                    ;
     push rsi                    ; saving rax, rsi, rdx
     push rdx                    ;
@@ -216,6 +209,21 @@ PrintBuffer:
     pop rax                     ;
 
     ret
+
+;====================================SyntaxError======================================
+synterr:                        ; print syntax error message and exit(1)
+
+    mov rax, 0x01
+    mov rdi, 1
+    mov rsi, ErrorMsg
+    mov rdx, ErrMsgLen
+    syscall
+
+    mov  rax, [RetAddr]
+    push rax
+    mov  rax, 1
+    ret
+
 ;=====================================================================================
 Finish:                         ; exit(0)
 
